@@ -22,7 +22,8 @@ quotapulse claude gemini --text
 
 - default: JSON array
 - `--text`: line-per-provider summary
-- `--status`: compact status line
+- `--status`: compact status line (glyph provider icons by default)
+- `--status --no-nf`: force ASCII provider icons
 
 ## Notes
 

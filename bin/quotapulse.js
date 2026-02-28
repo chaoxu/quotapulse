@@ -5,6 +5,7 @@ const os = require("os");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { renderStackedDualBar } = require("../lib/cellgauge-renderer");
+const { getStatusIcons, resolveUseNf } = require("../lib/status-icons");
 
 const TIMEOUT_MS = 12000;
 
@@ -163,66 +164,6 @@ function earliestIso(values) {
     if (bestMs === null || ms < bestMs) bestMs = ms;
   }
   return bestMs === null ? null : new Date(bestMs).toISOString();
-}
-
-function iconFromHex(hex, fallback) {
-  if (!hex || typeof hex !== "string") return fallback;
-  const trimmed = hex.trim().toLowerCase().replace(/^0x/, "");
-  if (!/^[0-9a-f]+$/.test(trimmed)) return fallback;
-  try {
-    return String.fromCodePoint(parseInt(trimmed, 16));
-  } catch {
-    return fallback;
-  }
-}
-
-function getStatusIcons(useNf) {
-  if (!useNf) {
-    return {
-      codex: "Cx",
-      claude: "Cl",
-      gemini: "Gm",
-      error: "!",
-    };
-  }
-
-  const preset = (process.env.OU_ICON_PRESET || "").trim().toLowerCase();
-  if (preset === "quotapulse" || preset === "openusage") {
-    return {
-      codex: process.env.OU_ICON_CODEX && process.env.OU_ICON_CODEX.trim()
-        ? process.env.OU_ICON_CODEX.trim()
-        : "\u{e900}",
-      claude: process.env.OU_ICON_CLAUDE && process.env.OU_ICON_CLAUDE.trim()
-        ? process.env.OU_ICON_CLAUDE.trim()
-        : "\u{e901}",
-      gemini: process.env.OU_ICON_GEMINI && process.env.OU_ICON_GEMINI.trim()
-        ? process.env.OU_ICON_GEMINI.trim()
-        : "\u{e902}",
-      error: process.env.OU_ICON_ERROR && process.env.OU_ICON_ERROR.trim()
-        ? process.env.OU_ICON_ERROR.trim()
-        : iconFromHex("f06a", "!"),
-    };
-  }
-
-  const defaultIcons = {
-    codex: iconFromHex("f121", "Cx"), // nf-fa-code
-    claude: iconFromHex("ee9c", "Cl"), // nf-fa-brain
-    gemini: iconFromHex("f1a0", "Gm"), // nf-fa-google
-    error: iconFromHex("f06a", "!"), // nf-fa-exclamation_circle
-  };
-
-  const fromEnv = (name, fallback) => {
-    const value = process.env[name];
-    if (!value || !value.trim()) return fallback;
-    return value.trim();
-  };
-
-  return {
-    codex: fromEnv("OU_ICON_CODEX", defaultIcons.codex),
-    claude: fromEnv("OU_ICON_CLAUDE", defaultIcons.claude),
-    gemini: fromEnv("OU_ICON_GEMINI", defaultIcons.gemini),
-    error: fromEnv("OU_ICON_ERROR", defaultIcons.error),
-  };
 }
 
 function parsePositiveInt(value, fallbackValue) {
@@ -813,10 +754,7 @@ function formatStatusLine(results, opts = {}) {
 async function main() {
   const args = process.argv.slice(2);
   const asStatus = args.includes("--status");
-  const useNf =
-    args.includes("--nf") ||
-    args.includes("--nerdfont") ||
-    args.includes("--status-nf");
+  const useNf = resolveUseNf({ args, asStatus });
   const stackedStyleArg =
     args.includes("--status-stacked") || args.includes("--stacked") || args.includes("--status-style=stacked");
   const asText = args.includes("--text");
