@@ -1,0 +1,36 @@
+{
+  "name": "quotapulse",
+  "version": "0.1.0",
+  "description": "CLI for tracking AI subscription usage across Codex, Claude, and Gemini",
+  "type": "commonjs",
+  "bin": {
+    "quotapulse": "bin/quotapulse.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check bin/quotapulse.js",
+    "status": "node bin/quotapulse.js --status",
+    "text": "node bin/quotapulse.js --text"
+  },
+  "keywords": [
+    "ai",
+    "subscription",
+    "usage",
+    "codex",
+    "claude",
+    "gemini",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "cellgauge": "^0.1.0"
+  },
+  "license": "MIT"
+}
