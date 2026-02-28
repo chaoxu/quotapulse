@@ -18,6 +18,9 @@ test("package metadata is defined for quotapulse", () => {
   assert.equal(pkg.type, "commonjs");
   assert.ok(pkg.bin && typeof pkg.bin === "object");
   assert.equal(pkg.bin.quotapulse, "bin/quotapulse.js");
+  assert.ok(Array.isArray(pkg.files));
+  assert.ok(pkg.files.includes("fonts"));
+  assert.ok(pkg.files.includes("scripts"));
 });
 
 test("quotapulse CLI entrypoint exists and has a shebang", () => {

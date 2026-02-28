@@ -10,6 +10,15 @@
 npm install -g quotapulse
 ```
 
+`npm install` will attempt to install `QuotaPulseLogos.ttf` and
+`CellGaugeSymbols.ttf` into your user font directory.
+
+To skip auto-install (for CI/sandboxed installs):
+
+```bash
+OU_SKIP_FONT_INSTALL=1 npm install -g quotapulse
+```
+
 ## Usage
 
 ```bash
@@ -20,6 +29,9 @@ quotapulse --stacked                    # stacked dual-bar status
 quotapulse --stacked --bar-width 3
 quotapulse codex --status               # single provider
 quotapulse claude gemini --text         # multiple providers
+quotapulse setup-fonts                  # manually (re)install fonts
+quotapulse setup-fonts --font-dir ~/Library/Fonts
+quotapulse font-paths                   # print packaged source font paths
 ```
 
 Positional arguments filter providers. Valid names: `codex`, `claude`, `gemini`.
@@ -69,6 +81,26 @@ instead of a plain percentage.
 | `--stacked` | Stacked dual-bar status (implies `--status`) |
 | `--no-nf`, `--status-ascii` | Force ASCII icons (`Cx`, `Cl`, `Gm`) |
 | `--bar-width <n>` | Bar width in cells (default `5`) |
+
+## Font setup
+
+`quotapulse --status` and `quotapulse --stacked` use glyph icons and PUA
+bar symbols. For correct rendering, install:
+
+- `QuotaPulseLogos.ttf`
+- `CellGaugeSymbols.ttf`
+
+Manual install command:
+
+```bash
+quotapulse setup-fonts
+```
+
+Use `--font-dir` to override target directory:
+
+```bash
+quotapulse setup-fonts --font-dir /path/to/fonts
+```
 
 ### Icon mode
 

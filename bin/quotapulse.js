@@ -9,6 +9,12 @@ const { attachResetDurations, secondsUntilReset } = require("../lib/reset-durati
 const { stackedLaneValues } = require("../lib/status-lanes");
 const { getStatusIcons, resolveUseNf } = require("../lib/status-icons");
 const { collectSelectedProviders, resolveBarWidth } = require("../lib/status-options");
+const {
+  parseSetupFontsArgs,
+  installFonts,
+  resolveFontSources,
+  setupFontsUsage,
+} = require("../lib/font-installer");
 
 const TIMEOUT_MS = 12000;
 
@@ -722,6 +728,27 @@ function formatStatusLine(results, opts = {}) {
 
 async function main() {
   const args = process.argv.slice(2);
+  if (args[0] === "setup-fonts") {
+    const parsed = parseSetupFontsArgs(args.slice(1));
+    if (parsed.help) {
+      process.stdout.write(`${setupFontsUsage()}\n`);
+      return;
+    }
+    const installedPaths = installFonts({ fontDir: parsed.fontDir });
+    for (const installedPath of installedPaths) {
+      process.stdout.write(`${installedPath}\n`);
+    }
+    return;
+  }
+
+  if (args[0] === "font-paths") {
+    const fonts = resolveFontSources();
+    for (const font of fonts) {
+      process.stdout.write(`${font.label}=${font.sourcePath}\n`);
+    }
+    return;
+  }
+
   const stacked = args.includes("--stacked");
   const asStatus = args.includes("--status") || stacked;
   const useNf = resolveUseNf({ args, asStatus });

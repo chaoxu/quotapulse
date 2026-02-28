@@ -1,6 +1,6 @@
 {
   "name": "quotapulse",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI for tracking AI subscription usage across Codex, Claude, and Gemini",
   "type": "commonjs",
   "bin": {
@@ -9,13 +9,16 @@
   "files": [
     "bin",
     "lib",
+    "fonts",
+    "scripts",
     "README.md"
   ],
   "scripts": {
     "test": "node --test",
     "check": "node --check bin/quotapulse.js",
     "status": "node bin/quotapulse.js --status",
-    "text": "node bin/quotapulse.js --text"
+    "text": "node bin/quotapulse.js --text",
+    "postinstall": "node scripts/postinstall-fonts.js"
   },
   "keywords": [
     "ai",
