@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
-const { execFileSync } = require("child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 const { renderStackedDualBar } = require("../lib/cellgauge-renderer");
+const { attachResetDurations, secondsUntilReset } = require("../lib/reset-durations");
+const { stackedLaneValues } = require("../lib/status-lanes");
 const { getStatusIcons, resolveUseNf } = require("../lib/status-icons");
+const { collectSelectedProviders, resolveBarWidth } = require("../lib/status-options");
 
 const TIMEOUT_MS = 12000;
 
@@ -18,7 +21,7 @@ function expandHome(inputPath) {
 
 function readJsonIfExists(inputPath) {
   const p = expandHome(inputPath);
-  if (!p || !fs.existsSync(p)) return null;
+  if (!p) return null;
   try {
     return JSON.parse(fs.readFileSync(p, "utf8"));
   } catch {
@@ -143,15 +146,13 @@ function pctLabel(value) {
 }
 
 function shortCountdown(iso) {
-  if (!iso || typeof iso !== "string") return null;
-  const targetMs = Date.parse(iso);
-  if (!Number.isFinite(targetMs)) return null;
-  let diff = Math.max(0, targetMs - Date.now());
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(diff / (60 * 60000));
+  const seconds = secondsUntilReset(iso, Date.now());
+  if (seconds === null) return null;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes === 0 ? "<1m" : `${minutes}m`;
+  const hours = Math.floor(seconds / 3600);
   if (hours < 48) return `${hours}h`;
-  const days = Math.floor(diff / (24 * 60 * 60000));
+  const days = Math.floor(seconds / 86400);
   return `${days}d`;
 }
 
@@ -164,12 +165,6 @@ function earliestIso(values) {
     if (bestMs === null || ms < bestMs) bestMs = ms;
   }
   return bestMs === null ? null : new Date(bestMs).toISOString();
-}
-
-function parsePositiveInt(value, fallbackValue) {
-  const n = Number.parseInt(String(value || "").trim(), 10);
-  if (!Number.isFinite(n) || n <= 0) return fallbackValue;
-  return n;
 }
 
 function parseJwtPayload(jwt) {
@@ -427,7 +422,6 @@ function loadGeminiOauthClientCreds() {
 
   for (const p of paths) {
     const abs = expandHome(p);
-    if (!fs.existsSync(abs)) continue;
     try {
       const parsed = parseOauthClientCreds(fs.readFileSync(abs, "utf8"));
       if (parsed) return parsed;
@@ -446,12 +440,8 @@ function collectQuotaBuckets(value, out) {
   if (!value || typeof value !== "object") return;
 
   if (typeof value.remainingFraction === "number") {
-    const modelId =
-      typeof value.modelId === "string"
-        ? value.modelId
-        : typeof value.model_id === "string"
-          ? value.model_id
-          : "unknown";
+    const modelId = [value.modelId, value.model_id]
+      .find((v) => typeof v === "string") || "unknown";
     out.push({
       modelId,
       remainingFraction: value.remainingFraction,
@@ -522,13 +512,10 @@ async function getGeminiUsage() {
 
   let accessToken = creds.access_token;
   const expiryRaw = Number(creds.expiry_date);
-  if (!accessToken || Number.isFinite(expiryRaw)) {
-    const expiryMs = Number.isFinite(expiryRaw) ? (expiryRaw > 10_000_000_000 ? expiryRaw : expiryRaw * 1000) : 0;
-    const needs = !accessToken || Date.now() + 5 * 60 * 1000 >= expiryMs;
-    if (needs) {
-      const refreshed = await refresh();
-      if (refreshed) accessToken = refreshed;
-    }
+  const expiryMs = Number.isFinite(expiryRaw) ? (expiryRaw > 10_000_000_000 ? expiryRaw : expiryRaw * 1000) : 0;
+  if (!accessToken || Date.now() + 5 * 60 * 1000 >= expiryMs) {
+    const refreshed = await refresh();
+    if (refreshed) accessToken = refreshed;
   }
   if (!accessToken) throw new Error("not logged in");
 
@@ -684,32 +671,22 @@ function formatLine(result) {
 }
 
 function statusToken(result, icons) {
+  const icon = icons[result.provider] || result.provider;
   if (result.error) {
-    if (result.provider === "codex") return `${icons.codex} ${icons.error}`;
-    if (result.provider === "claude") return `${icons.claude} ${icons.error}`;
-    if (result.provider === "gemini") return `${icons.gemini} ${icons.error}`;
-    return `${result.provider} ${icons.error}`;
+    return `${icon} ${icons.error}`;
   }
 
-  if (result.provider === "codex") {
-    const weekly = pctIntMaybe(result.weekly);
+  if (result.provider === "codex" || result.provider === "claude") {
     const reset = shortCountdown(result.weeklyReset);
-    return `${icons.codex} ${pctLabel(weekly)}${reset ? ` ${reset}` : ""}`;
-  }
-
-  if (result.provider === "claude") {
-    const weekly = pctIntMaybe(result.weekly);
-    const reset = shortCountdown(result.weeklyReset);
-    return `${icons.claude} ${pctLabel(weekly)}${reset ? ` ${reset}` : ""}`;
+    return `${icon} ${pctLabel(result.weekly)}${reset ? ` ${reset}` : ""}`;
   }
 
   if (result.provider === "gemini") {
-    const pro = pctIntMaybe(result.proUsed);
-    const reset = shortCountdown(result.proReset || earliestIso([result.proReset, result.flashReset]));
-    return `${icons.gemini} ${pctLabel(pro)}${reset ? ` ${reset}` : ""}`;
+    const reset = shortCountdown(earliestIso([result.proReset, result.flashReset]));
+    return `${icon} ${pctLabel(result.proUsed)}${reset ? ` ${reset}` : ""}`;
   }
 
-  return `${result.provider} ?`;
+  return `${icon} ?`;
 }
 
 function formatStatusLine(results, opts = {}) {
@@ -720,29 +697,21 @@ function formatStatusLine(results, opts = {}) {
   const separator = process.env.OU_STATUS_SEPARATOR && process.env.OU_STATUS_SEPARATOR.trim()
     ? process.env.OU_STATUS_SEPARATOR
     : (statusStyle === "stacked" ? " " : " | ");
-  const barWidth = parsePositiveInt(process.env.OU_BAR_WIDTH, 6);
+  const barWidth = opts.barWidth ?? 5;
   const byProvider = new Map(results.map((r) => [r.provider, r]));
   const parts = [];
   for (const provider of ordered) {
     const item = byProvider.get(provider);
     if (!item) continue;
     if (statusStyle === "stacked") {
+      const providerIcon = icons[provider];
       if (item.error) {
-        parts.push(
-          `${provider === "codex" ? icons.codex : provider === "claude" ? icons.claude : icons.gemini} ${icons.error}`
-        );
+        parts.push(`${providerIcon} ${icons.error}`);
         continue;
       }
-      if (provider === "codex") {
-        const bar = renderStackedDualBar(item.weekly, item.session, barWidth);
-        parts.push(`${icons.codex} ${bar}`);
-      } else if (provider === "claude") {
-        const bar = renderStackedDualBar(item.weekly, item.session, barWidth);
-        parts.push(`${icons.claude} ${bar}`);
-      } else if (provider === "gemini") {
-        const bar = renderStackedDualBar(item.proUsed, item.flashUsed, barWidth);
-        parts.push(`${icons.gemini} ${bar}`);
-      }
+      const lanes = stackedLaneValues(item);
+      const bar = renderStackedDualBar(lanes.top, lanes.bottom, barWidth);
+      parts.push(`${providerIcon} ${bar}`);
       continue;
     }
     parts.push(statusToken(item, icons));
@@ -753,12 +722,12 @@ function formatStatusLine(results, opts = {}) {
 
 async function main() {
   const args = process.argv.slice(2);
-  const asStatus = args.includes("--status");
+  const stacked = args.includes("--stacked");
+  const asStatus = args.includes("--status") || stacked;
   const useNf = resolveUseNf({ args, asStatus });
-  const stackedStyleArg =
-    args.includes("--status-stacked") || args.includes("--stacked") || args.includes("--status-style=stacked");
+  const barWidth = resolveBarWidth({ args });
   const asText = args.includes("--text");
-  const selected = args.filter((a) => !a.startsWith("--")).map((a) => a.toLowerCase());
+  const selected = collectSelectedProviders(args);
   const allowed = ["codex", "claude", "gemini"];
   const providers = selected.length ? allowed.filter((p) => selected.includes(p)) : allowed;
 
@@ -781,14 +750,18 @@ async function main() {
 
   if (asStatus) {
     process.stdout.write(
-      `${formatStatusLine(results, { useNf, statusStyle: stackedStyleArg ? "stacked" : undefined })}\n`
+      `${formatStatusLine(results, {
+        useNf,
+        barWidth,
+        statusStyle: stacked ? "stacked" : undefined,
+      })}\n`
     );
   } else if (asText) {
     for (const row of results) {
       process.stdout.write(`${formatLine(row)}\n`);
     }
   } else {
-    process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(results.map((row) => attachResetDurations(row)), null, 2)}\n`);
   }
 
   const hasSuccess = results.some((r) => !r.error);

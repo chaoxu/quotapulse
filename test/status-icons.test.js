@@ -39,9 +39,9 @@ test("status mode respects OU_STATUS_GLYPHS=0", () => {
   assert.equal(useNf, false);
 });
 
-test("glyph icon set includes non-ascii provider icons", () => {
+test("glyph icons use QuotaPulseLogos codepoints", () => {
   const icons = getStatusIcons(true, {});
-  assert.notEqual(icons.codex, "Cx");
-  assert.notEqual(icons.claude, "Cl");
-  assert.notEqual(icons.gemini, "Gm");
+  assert.equal(icons.codex.codePointAt(0), 0xf1af1);
+  assert.equal(icons.claude.codePointAt(0), 0xf1af2);
+  assert.equal(icons.gemini.codePointAt(0), 0xf1af3);
 });
