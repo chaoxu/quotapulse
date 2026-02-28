@@ -2,6 +2,8 @@
 
 `quotapulse` is a small CLI for checking subscription usage across Codex, Claude, and Gemini from locally logged-in CLI sessions.
 
+<img width="166" height="21" alt="image" src="https://github.com/user-attachments/assets/d8b98fcf-ac82-495c-9e8b-4ebf02eee8c6" />
+
 ## Install
 
 ```bash
