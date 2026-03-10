@@ -1,6 +1,6 @@
 {
   "name": "quotapulse",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "CLI for tracking AI subscription usage across Codex, Claude, and Gemini",
   "type": "commonjs",
   "bin": {
