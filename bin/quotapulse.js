@@ -15,6 +15,7 @@ const {
   resolveFontSources,
   setupFontsUsage,
 } = require("../lib/font-installer");
+const { writeCache, getCachedIfFresh, getCachedStale } = require("../lib/response-cache");
 
 const TIMEOUT_MS = 12000;
 
@@ -45,6 +46,28 @@ function decodeHexUtf8Maybe(value) {
     return Buffer.from(hex, "hex").toString("utf8");
   } catch {
     return null;
+  }
+}
+
+function writeKeychainJson(serviceName, data) {
+  try {
+    const json = JSON.stringify(data);
+    // Delete existing entry first (add-generic-password fails if it exists)
+    try {
+      execFileSync("security", ["delete-generic-password", "-s", serviceName], {
+        stdio: "ignore",
+      });
+    } catch {
+      // ignore — entry may not exist
+    }
+    execFileSync(
+      "security",
+      ["add-generic-password", "-s", serviceName, "-w", json, "-U"],
+      { stdio: "ignore" }
+    );
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -204,6 +227,13 @@ function readFirstStringDeep(value, keys) {
   return null;
 }
 
+function retryAfterSeconds(resp) {
+  const value = resp.headers.get("retry-after");
+  if (!value) return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.ceil(n) : null;
+}
+
 async function getCodexUsage() {
   const codexHome = process.env.CODEX_HOME && process.env.CODEX_HOME.trim() ? process.env.CODEX_HOME.trim() : null;
   const authPaths = codexHome
@@ -278,6 +308,10 @@ async function getCodexUsage() {
     }
   }
 
+  if (usage.resp.status === 429) {
+    writeCache("codex", null, retryAfterSeconds(usage.resp) || 60);
+    throw new Error("rate limited");
+  }
   if (!usage.resp.ok) {
     throw new Error(`usage request failed (HTTP ${usage.resp.status})`);
   }
@@ -315,10 +349,16 @@ async function getCodexUsage() {
 }
 
 async function getClaudeUsage() {
+  let credsSource = null; // "file" or "keychain"
   let creds = readJsonIfExists("~/.claude/.credentials.json");
-  if (!creds || !creds.claudeAiOauth || !creds.claudeAiOauth.accessToken) {
+  if (creds && creds.claudeAiOauth && creds.claudeAiOauth.accessToken) {
+    credsSource = "file";
+  } else {
     const keychain = readKeychainJson("Claude Code-credentials");
-    if (keychain && keychain.claudeAiOauth && keychain.claudeAiOauth.accessToken) creds = keychain;
+    if (keychain && keychain.claudeAiOauth && keychain.claudeAiOauth.accessToken) {
+      creds = keychain;
+      credsSource = "keychain";
+    }
   }
   if (!creds || !creds.claudeAiOauth || !creds.claudeAiOauth.accessToken) {
     throw new Error("not logged in");
@@ -326,6 +366,15 @@ async function getClaudeUsage() {
 
   const oauth = creds.claudeAiOauth;
   let accessToken = oauth.accessToken;
+
+  const saveCreds = () => {
+    if (credsSource === "file") {
+      const p = expandHome("~/.claude/.credentials.json");
+      try { fs.writeFileSync(p, JSON.stringify(creds, null, 2)); } catch { /* ignore */ }
+    } else if (credsSource === "keychain") {
+      writeKeychainJson("Claude Code-credentials", creds);
+    }
+  };
 
   const refresh = async () => {
     if (!oauth.refreshToken) return null;
@@ -343,6 +392,7 @@ async function getClaudeUsage() {
     oauth.accessToken = json.access_token;
     if (json.refresh_token) oauth.refreshToken = json.refresh_token;
     if (typeof json.expires_in === "number") oauth.expiresAt = Date.now() + json.expires_in * 1000;
+    saveCreds();
     return json.access_token;
   };
 
@@ -372,6 +422,10 @@ async function getClaudeUsage() {
       accessToken = refreshed;
       usage = await usageRequest(accessToken);
     }
+  }
+  if (usage.resp.status === 429) {
+    writeCache("claude", null, retryAfterSeconds(usage.resp) || 60);
+    throw new Error("rate limited");
   }
   if (!usage.resp.ok) {
     throw new Error(`usage request failed (HTTP ${usage.resp.status})`);
@@ -593,6 +647,10 @@ async function getGeminiUsage() {
   const quotaResp = await withRetry((token) =>
     postJson("https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota", token, projectId ? { project: projectId } : {})
   );
+  if (quotaResp.resp.status === 429) {
+    writeCache("gemini", null, retryAfterSeconds(quotaResp.resp) || 60);
+    throw new Error("rate limited");
+  }
   if (!quotaResp.resp.ok || !quotaResp.json || typeof quotaResp.json !== "object") {
     throw new Error(`quota request failed (HTTP ${quotaResp.resp.status})`);
   }
@@ -758,18 +816,22 @@ async function main() {
   const allowed = ["codex", "claude", "gemini"];
   const providers = selected.length ? allowed.filter((p) => selected.includes(p)) : allowed;
 
+  const fetchFn = { codex: getCodexUsage, claude: getClaudeUsage, gemini: getGeminiUsage };
   const jobs = providers.map(async (provider) => {
+    const fn = fetchFn[provider];
+    if (!fn) return { provider, error: "unsupported provider" };
+
+    const fresh = getCachedIfFresh(provider);
+    if (fresh) return fresh;
+
     try {
-      if (provider === "codex") {
-        return await getCodexUsage();
-      } else if (provider === "claude") {
-        return await getClaudeUsage();
-      } else if (provider === "gemini") {
-        return await getGeminiUsage();
-      }
-      return { provider, error: "unsupported provider" };
+      const result = await fn();
+      writeCache(provider, result, null);
+      return result;
     } catch (err) {
       const msg = err && err.message ? err.message : String(err);
+      const stale = getCachedStale(provider);
+      if (stale) return stale;
       return { provider, error: msg };
     }
   });
